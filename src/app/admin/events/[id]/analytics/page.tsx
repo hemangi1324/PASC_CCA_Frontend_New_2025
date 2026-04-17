@@ -112,6 +112,13 @@ export default function EventAnalyticsPage({
   const [analytics, setAnalytics] = useState<EventAnalytics | null>(null);
   const [rsvps, setRsvps] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [rsvpFilter, setRsvpFilter] = useState<'WAITLISTED' | 'CONFIRMED' | 'ALL'>('WAITLISTED');
+
+  const filteredRsvps = rsvps.filter(rsvp => {
+    if (rsvpFilter === 'WAITLISTED') return rsvp.status === 'WAITLISTED';
+    if (rsvpFilter === 'CONFIRMED') return rsvp.status === 'CONFIRMED' || rsvp.status === 'ATTENDING';
+    return true;
+  });
 
   useEffect(() => {
     const init = async () => {
@@ -196,6 +203,51 @@ export default function EventAnalyticsPage({
       }
     } catch (error) {
       console.error('Error fetching RSVPs:', error);
+    }
+  };
+
+  const handleApproveRsvp = async (rsvpId: number, force: boolean = false) => {
+    try {
+      const response = await rsvpAPI.approve(rsvpId, force);
+      if (response.data?.success) {
+        // Refresh everything
+        await Promise.all([
+          fetchAnalytics(eventId),
+          fetchRsvps(eventId)
+        ]);
+      } else if (response.data?.message?.includes('capacity') && !force) {
+        if (confirm('Event is at full capacity. Do you want to force-approve (override capacity)?')) {
+          handleApproveRsvp(rsvpId, true);
+        }
+      } else {
+        alert(response.data?.message || 'Failed to approve RSVP');
+      }
+    } catch (error: any) {
+      console.error('Error approving RSVP:', error);
+      const errorMsg = error.response?.data?.message || 'Error occurred while approving';
+      if (errorMsg.includes('capacity') && !force) {
+        if (confirm('Event is at full capacity. Do you want to force-approve (override capacity)?')) {
+          handleApproveRsvp(rsvpId, true);
+        }
+      } else {
+        alert(errorMsg);
+      }
+    }
+  };
+
+  const handleRejectRsvp = async (rsvpId: number) => {
+    if (!confirm('Are you sure you want to reject this RSVP?')) return;
+    try {
+      const response = await rsvpAPI.reject(rsvpId);
+      if (response.data?.success) {
+        // Refresh everything
+        await Promise.all([
+          fetchAnalytics(eventId),
+          fetchRsvps(eventId)
+        ]);
+      }
+    } catch (error) {
+      console.error('Error rejecting RSVP:', error);
     }
   };
 
@@ -347,186 +399,253 @@ export default function EventAnalyticsPage({
               </div>
             )}
           </div>
+        )}
 
-          {/* Registered Students List - Span 2 */}
-          <div className="lg:col-span-2 rounded-2xl sm:rounded-[2rem] border border-[var(--color-border)] bg-[var(--color-card)] p-6 sm:p-8 shadow-sm hover:shadow-md transition-shadow duration-300">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="font-bold text-xl text-foreground flex items-center gap-2">
+          {/* RSVP List */}
+          <div className="bg-card rounded-xl border border-border p-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-4">
+              <h3 className="font-semibold text-lg flex items-center gap-2">
                 <Users className="w-5 h-5 text-primary" />
-                Registered Students
+                RSVPs ({filteredRsvps.length})
               </h3>
-              {!loading && rsvps.length > 0 && (
-                <span className="px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold">
-                  {rsvps.length} Total
-                </span>
-              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setRsvpFilter('WAITLISTED')}
+                  className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${rsvpFilter === 'WAITLISTED' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80 text-muted-foreground'}`}
+                >
+                  Waitlisted
+                </button>
+                <button
+                  onClick={() => setRsvpFilter('CONFIRMED')}
+                  className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${rsvpFilter === 'CONFIRMED' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80 text-muted-foreground'}`}
+                >
+                  Confirmed
+                </button>
+                <button
+                  onClick={() => setRsvpFilter('ALL')}
+                  className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${rsvpFilter === 'ALL' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80 text-muted-foreground'}`}
+                >
+                  All
+                </button>
+              </div>
             </div>
 
             {loading ? (
-              <div className="space-y-4">
-                {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}
+              <div className="space-y-3">
+                {[1, 2, 3, 4, 5].map(i => (
+                  <Skeleton key={i} className="h-16 w-full" />
+                ))}
               </div>
-            ) : rsvps.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground bg-muted/20 rounded-2xl border border-dashed border-border/50">
-                <Users className="w-12 h-12 opacity-20 mb-3" />
-                <p className="font-medium">No registrations yet</p>
+            ) : filteredRsvps.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <Users className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p>No RSVPs found for this category</p>
               </div>
             ) : (
-              <div className="grid gap-3">
-                {rsvps.map((rsvp) => (
-                  <div
-                    key={rsvp.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border border-[var(--color-border-light)] bg-[var(--color-surface)]/35 hover:bg-[var(--color-surface)] shadow-sm hover:shadow-md transition-all duration-200"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
-                        {rsvp.user?.name?.charAt(0) || '?'}
-                      </div>
-                      <div>
-                        <p className="font-bold text-foreground leading-tight">{rsvp.user?.name || 'Unknown'}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">{rsvp.user?.email}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center flex-wrap gap-2">
-                      <Badge variant="outline" className="text-[10px] font-medium uppercase tracking-wider h-6">
-                        {rsvp.user?.department || 'N/A'}
-                      </Badge>
-                      <Badge variant="outline" className="text-[10px] font-medium uppercase tracking-wider h-6">
-                        {rsvp.user?.year ? `Year ${rsvp.user.year}` : 'Year N/A'}
-                      </Badge>
-                      <Badge className={`text-[10px] font-medium uppercase tracking-wider h-6 ${rsvp.status === 'ATTENDING' ? 'bg-green-100 text-green-700 dark:bg-green-900/30' : 'bg-slate-100 text-slate-700 dark:bg-slate-900/30'}`}>
-                        {rsvp.status}
-                      </Badge>
-                    </div>
-                  </div>
-                ))}
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-accent">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-sm font-semibold">#</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold">Student</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold">Department</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold">Year</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold">Status</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold">Registered At</th>
+                      <th className="px-4 py-3 text-right text-sm font-semibold">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {filteredRsvps.map((rsvp, index) => (
+                      <tr key={rsvp.id} className="hover:bg-accent/50 transition-colors">
+                        <td className="px-4 py-3 text-sm text-muted-foreground">{index + 1}</td>
+                        <td className="px-4 py-3">
+                          <div>
+                            <p className="font-medium text-foreground">{rsvp.user?.name || 'Unknown'}</p>
+                            <p className="text-xs text-muted-foreground">{rsvp.user?.email}</p>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground">
+                          {rsvp.user?.department || '-'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground">
+                          {rsvp.user?.year ? `Year ${rsvp.user.year}` : '-'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge
+                            className={
+                              rsvp.status === 'CONFIRMED' || rsvp.status === 'ATTENDING'
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                : rsvp.status === 'WAITLISTED'
+                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200'
+                                  : rsvp.status === 'REJECTED'
+                                    ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                                    : 'bg-gray-100 text-gray-800'
+                            }
+                          >
+                            {rsvp.status}
+                            {rsvp.waitlistPosition ? ` (#${rsvp.waitlistPosition})` : ''}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground">
+                          {formatDateTime(rsvp.createdAt)}
+                        </td>
+                        <td className="px-4 py-3 text-right space-x-2">
+                          {rsvp.status === 'WAITLISTED' && (
+                            <>
+                              <button
+                                onClick={() => handleApproveRsvp(rsvp.id)}
+                                className="text-xs font-semibold px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                              >
+                                Accept
+                              </button>
+                              <button
+                                onClick={() => handleRejectRsvp(rsvp.id)}
+                                className="text-xs font-semibold px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                              >
+                                Revoke
+                              </button>
+                            </>
+                          )}
+                          {(rsvp.status === 'CONFIRMED' || rsvp.status === 'ATTENDING') && (
+                            <button
+                              onClick={() => handleRejectRsvp(rsvp.id)}
+                              className="text-xs font-semibold px-2 py-1 text-red-600 hover:text-red-800 transition-colors"
+                            >
+                              Revoke
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
-        </div>
 
-        {/* Bottom Grid for Lists */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Credits & Attendance List */}
-          <div className="rounded-2xl sm:rounded-[2rem] border border-[var(--color-border)] bg-[var(--color-card)] p-6 sm:p-8 shadow-sm hover:shadow-md transition-shadow duration-300">
-            <h3 className="font-bold text-xl text-foreground flex items-center gap-2 mb-6">
-              <Award className="w-5 h-5 text-primary" />
-              Recent Attendance
-            </h3>
+          {/* Bottom Grid for Lists */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Credits & Attendance List */}
+            <div className="rounded-2xl sm:rounded-[2rem] border border-[var(--color-border)] bg-[var(--color-card)] p-6 sm:p-8 shadow-sm hover:shadow-md transition-shadow duration-300">
+              <h3 className="font-bold text-xl text-foreground flex items-center gap-2 mb-6">
+                <Award className="w-5 h-5 text-primary" />
+                Recent Attendance
+              </h3>
 
-            {loading ? (
-              <div className="space-y-4">
-                {[1, 2, 3].map(i => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}
-              </div>
-            ) : !analytics?.attendanceList || analytics.attendanceList.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground bg-muted/20 rounded-2xl border border-dashed border-border/50">
-                <Award className="w-12 h-12 opacity-20 mb-3" />
-                <p className="font-medium">No attendance records yet</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {analytics.attendanceList.map((record: any) => (
-                  <div key={record.id} className="p-4 rounded-xl border border-[var(--color-border-light)] bg-[var(--color-surface)]/35 hover:bg-[var(--color-surface)] transition-all">
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center text-green-600">
-                          <CheckCircle className="w-4 h-4" />
+              {loading ? (
+                <div className="space-y-4">
+                  {[1, 2, 3].map(i => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}
+                </div>
+              ) : !analytics?.attendanceList || analytics.attendanceList.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-muted-foreground bg-muted/20 rounded-2xl border border-dashed border-border/50">
+                  <Award className="w-12 h-12 opacity-20 mb-3" />
+                  <p className="font-medium">No attendance records yet</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {analytics.attendanceList.map((record: any) => (
+                    <div key={record.id} className="p-4 rounded-xl border border-[var(--color-border-light)] bg-[var(--color-surface)]/35 hover:bg-[var(--color-surface)] transition-all">
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center text-green-600">
+                            <CheckCircle className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <p className="font-bold text-sm text-foreground">{record.user?.name || 'Unknown'}</p>
+                            <p className="text-xs text-muted-foreground">{record.session?.name}</p>
+                          </div>
+                        </div>
+                        <Badge variant="outline" className="font-bold text-primary border-primary/20 bg-primary/5">
+                          +{record.session?.credits}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-4 mt-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider pl-10">
+                        <span>{record.user?.department || 'Dept N/A'}</span>
+                        <span className="w-1 h-1 rounded-full bg-muted-foreground/30" />
+                        <span>{formatDateTime(record.attendedAt)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Reviews List */}
+            <div className="rounded-2xl sm:rounded-[2rem] border border-[var(--color-border)] bg-[var(--color-card)] p-6 sm:p-8 shadow-sm hover:shadow-md transition-shadow duration-300">
+              <h3 className="font-bold text-xl text-foreground flex items-center gap-2 mb-6">
+                <Star className="w-5 h-5 text-primary" />
+                Student Reviews
+              </h3>
+
+              {loading ? (
+                <div className="space-y-4">
+                  {[1, 2, 3].map(i => <Skeleton key={i} className="h-28 w-full rounded-xl" />)}
+                </div>
+              ) : !analytics?.reviews?.list || analytics.reviews.list.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-muted-foreground bg-muted/20 rounded-2xl border border-dashed border-border/50">
+                  <Star className="w-12 h-12 opacity-20 mb-3" />
+                  <p className="font-medium">No reviews yet</p>
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  {analytics.reviews.list.map((review: any) => (
+                    <div key={review.id} className="relative p-5 rounded-2xl border border-[var(--color-border-light)] bg-[var(--color-surface)]/35 hover:bg-[var(--color-surface)] transition-all overflow-hidden group">
+                      <div className="absolute top-0 right-0 p-3 flex gap-0.5">
+                        {[...Array(5)].map((_, i) => (
+                          <Star
+                            key={i}
+                            className={`w-3.5 h-3.5 ${i < review.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-300 dark:text-slate-700'}`}
+                          />
+                        ))}
+                      </div>
+
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-600 dark:text-slate-400">
+                          {review.user?.name?.charAt(0) || 'A'}
                         </div>
                         <div>
-                          <p className="font-bold text-sm text-foreground">{record.user?.name || 'Unknown'}</p>
-                          <p className="text-xs text-muted-foreground">{record.session?.name}</p>
+                          <p className="font-bold text-sm text-foreground">{review.user?.name || 'Anonymous'}</p>
+                          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{review.user?.department || 'Student'}</p>
                         </div>
                       </div>
-                      <Badge variant="outline" className="font-bold text-primary border-primary/20 bg-primary/5">
-                        +{record.session?.credits}
-                      </Badge>
+
+                      <p className="text-sm text-foreground/90 line-clamp-3 pl-3 border-l-2 border-primary/20 py-1">
+                        "{review.review}"
+                      </p>
+
+                      <p className="text-[10px] font-medium text-muted-foreground/60 mt-3 text-right uppercase tracking-wider group-hover:text-primary transition-colors">
+                        {formatDateTime(review.createdAt)}
+                      </p>
                     </div>
-                    <div className="flex items-center gap-4 mt-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider pl-10">
-                      <span>{record.user?.department || 'Dept N/A'}</span>
-                      <span className="w-1 h-1 rounded-full bg-muted-foreground/30" />
-                      <span>{formatDateTime(record.attendedAt)}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Reviews List */}
-          <div className="rounded-2xl sm:rounded-[2rem] border border-[var(--color-border)] bg-[var(--color-card)] p-6 sm:p-8 shadow-sm hover:shadow-md transition-shadow duration-300">
-            <h3 className="font-bold text-xl text-foreground flex items-center gap-2 mb-6">
-              <Star className="w-5 h-5 text-primary" />
-              Student Reviews
-            </h3>
-
-            {loading ? (
-              <div className="space-y-4">
-                {[1, 2, 3].map(i => <Skeleton key={i} className="h-28 w-full rounded-xl" />)}
-              </div>
-            ) : !analytics?.reviews?.list || analytics.reviews.list.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground bg-muted/20 rounded-2xl border border-dashed border-border/50">
-                <Star className="w-12 h-12 opacity-20 mb-3" />
-                <p className="font-medium">No reviews yet</p>
-              </div>
-            ) : (
-              <div className="space-y-5">
-                {analytics.reviews.list.map((review: any) => (
-                  <div key={review.id} className="relative p-5 rounded-2xl border border-[var(--color-border-light)] bg-[var(--color-surface)]/35 hover:bg-[var(--color-surface)] transition-all overflow-hidden group">
-                    <div className="absolute top-0 right-0 p-3 flex gap-0.5">
-                      {[...Array(5)].map((_, i) => (
-                        <Star
-                          key={i}
-                          className={`w-3.5 h-3.5 ${i < review.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-300 dark:text-slate-700'}`}
-                        />
-                      ))}
-                    </div>
-
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-600 dark:text-slate-400">
-                        {review.user?.name?.charAt(0) || 'A'}
-                      </div>
-                      <div>
-                        <p className="font-bold text-sm text-foreground">{review.user?.name || 'Anonymous'}</p>
-                        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{review.user?.department || 'Student'}</p>
-                      </div>
-                    </div>
-
-                    <p className="text-sm text-foreground/90 line-clamp-3 pl-3 border-l-2 border-primary/20 py-1">
-                      "{review.review}"
-                    </p>
-
-                    <p className="text-[10px] font-medium text-muted-foreground/60 mt-3 text-right uppercase tracking-wider group-hover:text-primary transition-colors">
-                      {formatDateTime(review.createdAt)}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  );
+      );
 }
 
-function MetricCard({
-  icon,
-  title,
-  value,
-  subtitle,
-  loading,
-  color,
+      function MetricCard({
+        icon,
+        title,
+        value,
+        subtitle,
+        loading,
+        color,
 }: {
-  icon: React.ReactNode;
-  title: string;
-  value: number | string;
-  subtitle: string;
-  loading: boolean;
-  color: string;
+        icon: React.ReactNode;
+      title: string;
+      value: number | string;
+      subtitle: string;
+      loading: boolean;
+      color: string;
 }) {
   const baseCardClass = "rounded-2xl sm:rounded-[1.5rem] border border-[var(--color-border)] p-5 sm:p-7 shadow-sm hover:shadow-md transition-shadow duration-300 flex flex-col items-center justify-center";
 
-  if (loading) {
+      if (loading) {
     return (
       <div className={baseCardClass}>
         <Skeleton className="h-10 w-10 mb-3 rounded-xl" />
@@ -534,20 +653,20 @@ function MetricCard({
         <Skeleton className="h-8 w-16 mb-2" />
         <Skeleton className="h-3 w-20" />
       </div>
-    );
+      );
   }
 
-  return (
-    <div className={`bg-[var(--color-card)] ${baseCardClass}`}>
-      <div className="flex flex-row items-center justify-between w-full mb-3 sm:mb-4">
-        <span className="text-sm sm:text-base font-medium text-muted-foreground uppercase tracking-wider">{title}</span>
-        <div className={`p-2 rounded-xl ${color} shadow-sm`}>
-          {icon}
+      return (
+      <div className={`bg-[var(--color-card)] ${baseCardClass}`}>
+        <div className="flex flex-row items-center justify-between w-full mb-3 sm:mb-4">
+          <span className="text-sm sm:text-base font-medium text-muted-foreground uppercase tracking-wider">{title}</span>
+          <div className={`p-2 rounded-xl ${color} shadow-sm`}>
+            {icon}
+          </div>
         </div>
+        <div className="text-3xl sm:text-5xl font-bold tracking-tight text-foreground mb-1">{value}</div>
+        {subtitle && <p className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider mt-2 px-2 py-1 bg-accent rounded-lg">{subtitle}</p>}
       </div>
-      <div className="text-3xl sm:text-5xl font-bold tracking-tight text-foreground mb-1">{value}</div>
-      {subtitle && <p className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider mt-2 px-2 py-1 bg-accent rounded-lg">{subtitle}</p>}
-    </div>
-  );
+      );
 }
 
